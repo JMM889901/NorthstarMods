@@ -119,7 +119,7 @@ void function PopulateFDAwardData( var rui, array<FD_PlayerAwards> fddata, int l
 
 		if ( awardData.suitIndex >= 0 )
 		{
-			string titanRef = GetItemRefOfTypeByIndex( eItemTypes.TITAN, awardData.suitIndex )
+			string titanRef = GetCachedTitanLoadout( awardData.suitIndex ).titanClass
 			asset image
 			if ( GetModdedTitanClasses().contains( titanRef ) )
 				image = GetItemImage( titanRef )

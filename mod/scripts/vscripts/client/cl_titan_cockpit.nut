@@ -348,6 +348,8 @@ void function DisplayFrontierRank( bool isFirstBoot = true )
 	GetLocalClientPlayer().EndSignal( "DisplayFrontierRank" )
 
 	wait 2.0
+	if( file.cockpitAdditionalRui == null )
+		return//end of game or dead or other stuff idk
 
 	TitanLoadoutDef titanLoadout = GetTitanLoadoutFromPersistentData( GetLocalClientPlayer(), GetPersistentSpawnLoadoutIndex( GetLocalClientPlayer(), "titan" ) )
 	string titanClass = titanLoadout.titanClass

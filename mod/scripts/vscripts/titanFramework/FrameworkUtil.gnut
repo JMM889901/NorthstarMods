@@ -993,8 +993,18 @@ void function RegisterModdedTitanItemsSimple( ModdedTitanData titan )
 			TitanIcon = titan.coreIconOverride
 	else if (titan.Core.scriptHandled)
 			TitanIcon = Image
-	else
+	else if(titan.Core.image != $"ui/temp")
+	{
+		try{
 			TitanIcon = GetWeaponInfoFileKeyFieldAsset_Global(titan.Core.weaponName, "menu_icon")
+		}
+		catch(a)
+		{
+			TitanIcon = titan.Core.image
+		}
+	}
+	else
+		TitanIcon = titan.Core.image
 
 	array<int> typesarray = [eItemTypes.TITAN_TITANFALL_PASSIVE, eItemTypes.TITAN_GENERAL_PASSIVE, passive2, passive4, passive5, passive6]
 	ItemData titanData = CreateModdedTitanItem(999, eItemTypes.TITAN, titan.Name, titan.Name, titan.Description, titan.Description, Image, 0, false, typesarray,TitanIcon)

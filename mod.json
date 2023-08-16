@@ -113,7 +113,8 @@
 	],
 	"Dependencies":
     {
-      "TITANFRAMEWORK_HAS_MORESKINS": "MoreSkins-"
+      "TITANFRAMEWORK_HAS_MORESKINS": "MoreSkins-",
+	  "TITANFRAMEWORK_HAS_ATTRITIONEXTENDED": "Attrition Extended"
     },
 	"Localisation": [
 		"resource/TitanFramework_localisation_%language%.txt"

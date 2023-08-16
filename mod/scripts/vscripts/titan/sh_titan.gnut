@@ -16,6 +16,12 @@ global function TemporarilyNonSolidPlayer
 	global function EnableTitanExit
 	global function DisableTitanExit
 	global function TitanSkipsDeathOnEject
+	
+	#if TITANFRAMEWORK_HAS_ATTRITIONEXTENDED
+	// modified!!
+	global function TitanEject_SetSoulUseNPCPilotAsNukeAttacker
+	global function TitanEject_SetSoulNukeExplosionDamageOverride
+	#endif
 #endif
 
 global const TITAN_EJECT_SCREECH	= "titan_eject_screech"
@@ -35,10 +41,29 @@ global enum eCockpitState
 	Close = 7
 	Eject = 9
 }
-
+#if TITANFRAMEWORK_HAS_ATTRITIONEXTENDED
+// modified settings override!!!
+struct TitanNukeDamage
+{
+	int count
+	float duration
+	int damage
+	int damageHeavyArmor
+	int innerRadius
+	int outerRadius
+	int explosionFlags
+	int explosionForce
+	int damageFlags
+}
+#endif
 struct
 {
 	float titanVOEjectNotifyDist = 2000 * 2000
+	#if TITANFRAMEWORK_HAS_ATTRITIONEXTENDED
+	// modified settings override!!!!
+	table<entity, bool> soulUseNPCPilotAsNukeAttacker
+	table<entity, TitanNukeDamage> soulNukeDamageOverrides
+	#endif
 } file
 
 
@@ -359,14 +384,24 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 
 	e.player <- null
 	e.npcPilot <- null
+	#if !TITANFRAMEWORK_HAS_ATTRITIONEXTENDED
 	bool ejectTitanHasNpcPilot = false
+	#else
+	e.ejectTitanHasNpcPilot <- false
+	#endif
 	if ( ejectTitan.IsPlayer() )
 		e.player = ejectTitan
 
 	#if NPC_TITAN_PILOT_PROTOTYPE
 	if ( TitanHasNpcPilot( ejectTitan ) )
 	{
+		#if !TITANFRAMEWORK_HAS_ATTRITIONEXTENDED
 		ejectTitanHasNpcPilot = true
+		#else
+		e.ejectTitanHasNpcPilot = true
+		// vanilla missing. this can fix titan firing weapon during animation
+		ejectTitan.kv.allowShoot = 0
+		#endif
 	}
 	#endif
 
@@ -376,6 +411,28 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 	e.damageSourceId <- ( "damageSourceId" in soul.lastAttackInfo ) ? soul.lastAttackInfo.damageSourceId : -1
 	e.damageTypes <- soul.lastAttackInfo.scriptType
 	e.overrideAttacker <- soul.soul.nukeAttacker
+
+	#TITANFRAMEWORK_HAS_ATTRITIONEXTENDED
+	// modified to make mp_titanability_nuke_eject work
+	e.hasNuclearCore <- false
+	if ( ejectTitan.IsPlayer() )
+	{
+		if ( PlayerHasWeapon( ejectTitan, "mp_titanability_nuke_eject" ) ) // if player has nuke_eject weapon...
+		{
+			// have to manually doom it since undoomed titan will return a 0 in GetNuclearPayload()
+			// still can't make client predict the animation though, why respawn have to do this weapon all on client
+			soul.EnableDoomed()
+			ejectTitan.SetDoomed()
+			DoomTitan( ejectTitan )
+			// PAS_BUILD_UP_NUCLEAR_CORE is ttf2's nuke, PAS_NUCLEAR_CORE is super nuke!
+			if ( PlayerHasPassive( ejectTitan, ePassives.PAS_BUILD_UP_NUCLEAR_CORE ) )
+				e.hasNuclearCore = true // mark as already has a nuclear core, we won't remove it after ejecting
+			else
+				GivePassive( ejectTitan, ePassives.PAS_BUILD_UP_NUCLEAR_CORE ) // temp give NUCLEAR_CORE to player
+		}
+	}
+	//
+	#endif
 
 	local nuclearPayload = 0
 	if ( IsValid( e.player ) )
@@ -399,15 +456,36 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 	if ( rodeoPilot && rodeoPilot == e.attacker )
 		e.damageSourceId = eDamageSourceId.rodeo_forced_titan_eject
 
-	ejectTitan.Signal( "TitanEjectionStarted" )
 	ejectTitan.EndSignal( "OnDeath" )
-
+	
+	ejectTitan.Signal( "TitanEjectionStarted" )
 	OnThreadEnd(
 		function() : ( e, ejectTitan )
 		{
 			if ( IsAlive( ejectTitan ) )
 			{
 				thread ClearEjectInvulnerability( ejectTitan )
+				#if TITANFRAMEWORK_HAS_ATTRITIONEXTENDED
+				// modified to make nuke_eject work
+				if ( ejectTitan.IsPlayer() )
+				{
+					if ( !e.hasNuclearCore ) // don't have a nuclear core at start
+						TakePassive( ejectTitan, ePassives.PAS_BUILD_UP_NUCLEAR_CORE ) // take the passive off player
+				}
+				// vanilla missing npc pilot logic
+				#if NPC_TITAN_PILOT_PROTOTYPE
+					if ( expect bool( e.ejectTitanHasNpcPilot ) )
+					{
+						// vanilla missing: npc pilot ejecting protection
+						entity npcPilot = expect entity( e.npcPilot )
+						if ( IsAlive( npcPilot ) )
+							thread ClearEjectInvulnerability( npcPilot )
+						// vanilla missing: give back weapon usage after ejecting
+						if ( IsAlive( ejectTitan ) )
+							ejectTitan.kv.allowShoot = 1
+					}
+				#endif
+				#endif
 			}
 			else if ( IsValid( ejectTitan ) )
 			{
@@ -617,8 +695,20 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 	}
 
 	#if NPC_TITAN_PILOT_PROTOTYPE
+	#if !TITANFRAMEWORK_HAS_ATTRITIONEXTENDED
 	if ( ejectTitanHasNpcPilot )
+	#else
+	if ( expect bool( e.ejectTitanHasNpcPilot ) )
+		{
+	#endif
 		e.npcPilot = NpcTitanBecomesPilot( ejectTitan )
+	#if TITANFRAMEWORK_HAS_ATTRITIONEXTENDED
+		// vanilla missing: npc pilot ejecting protection
+		entity npcPilot = expect entity( e.npcPilot )
+		if ( IsAlive( npcPilot ) )
+			npcPilot.SetInvulnerable()
+		}
+	#endif
 	#endif
 
 	vector titanOrigin = titan.GetOrigin()
@@ -717,6 +807,7 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 		if ( IsAlive( rider ) && e.player.GetTeam() != rider.GetTeam() )
 			thread LookAtEachOther( rider, expect entity( e.player ) )
 	}
+	#if !TITANFRAMEWORK_HAS_ATTRITIONEXTENDED
 	else if ( ejectTitanHasNpcPilot && IsAlive( expect entity( e.npcPilot ) ) )
 	{
 		speed *= 0.6//magic number
@@ -726,6 +817,30 @@ function TitanEjectPlayer( entity ejectTitan, bool instant = false ) //TODO: Thi
 		e.npcPilot.Anim_ScriptedPlay( "running_jump_F_float" )
 		e.npcPilot.SetVelocity( velocity )
 	}
+	#else
+	// modified version of npc pilot ejecting
+	#if NPC_TITAN_PILOT_PROTOTYPE
+	// modified, make it be in table
+	//else if ( ejectTitanHasNpcPilot && IsAlive( expect entity( e.npcPilot ) ) )
+	else if ( expect bool( e.ejectTitanHasNpcPilot ) && IsAlive( expect entity( e.npcPilot ) ) )
+	{
+		//speed *= 0.6 //vanilla magic number, too slow so modified to removed it
+		vector velocity = < 0, 0, speed > //straight up
+		e.npcPilot.SetOrigin( titan.GetOrigin() + Vector(0,0,300) )
+		e.npcPilot.SetAngles( titan.GetAngles() )
+		// don't really have such animation
+		//e.npcPilot.Anim_ScriptedPlay( "running_jump_F_float" )
+		e.npcPilot.SetVelocity( velocity )
+
+		// modified here: use npc pilot as nuke attacker
+		if ( soul in file.soulUseNPCPilotAsNukeAttacker )
+		{
+			if ( file.soulUseNPCPilotAsNukeAttacker[ soul ] )
+				e.overrideAttacker = e.npcPilot
+		}
+	}
+	#endif
+	#endif
 
 	if ( IsValid( e.player ) )
 		TitanEjectVO( expect entity( e.player ), titanOrigin )
@@ -1010,6 +1125,21 @@ function NuclearCoreExplosionChainReaction( vector origin, e )
 				inflictor.Destroy()
 		}
 	)
+	#if TITANFRAMEWORK_HAS_ATTRITIONEXTENDED
+	// modified settings override
+	entity titan = expect entity( e.titan )
+	entity soul
+	if ( IsValid( titan ) && titan.IsTitan() )
+		soul = titan.GetTitanSoul()
+	if ( IsValid( soul ) && SoulHasNukeDamageOverride( soul ) ) // nuke damage effect override
+	{
+		TitanNukeDamage nukeStruct = GetSoulNukeDamageOverride( soul )
+		explosions = nukeStruct.count
+		time = nukeStruct.duration
+		waitPerExplosion = time / explosions
+	}
+	//
+	#endif
 
 	for ( int i = 0; i < explosions; i++ )
 	{
@@ -1033,7 +1163,29 @@ function NuclearCoreExplosionChainReaction( vector origin, e )
 
 		if ( outerRadius < innerRadius )
 			outerRadius = innerRadius
-
+		#if TITANFRAMEWORK_HAS_ATTRITIONEXTENDED
+				// modified settings override
+		if ( IsValid( soul ) && SoulHasNukeDamageOverride( soul ) ) // nuke damage effect override
+		{
+			TitanNukeDamage nukeStruct = GetSoulNukeDamageOverride( soul )
+			RadiusDamage( 
+				origin,								// origin
+				explosionOwner,						// owner
+				inflictor,							// inflictor
+				nukeStruct.damage,					// normal damage
+				nukeStruct.damageHeavyArmor,		// heavy armor damage
+				nukeStruct.innerRadius,				// inner radius
+				nukeStruct.outerRadius,				// outer radius
+				nukeStruct.explosionFlags,			// flags
+				0,									// distanceFromAttacker
+				nukeStruct.explosionForce,			// explosionForce
+				nukeStruct.damageFlags,				// scriptDamageFlags
+				damagedef_nuclear_core				// scriptDamageSourceIdentifier
+			)
+		}
+		else // vanilla behavior
+		{
+		#endif
 		RadiusDamage_DamageDef( damagedef_nuclear_core,
 			origin,								// origin
 			explosionOwner,						// owner
@@ -1043,7 +1195,8 @@ function NuclearCoreExplosionChainReaction( vector origin, e )
 			innerRadius,						// inner radius
 			outerRadius,						// outer radius
 			0 )									// dist from attacker
-
+		}
+		
 		wait waitPerExplosion
 	}
 }
@@ -1279,4 +1432,49 @@ asset function GetTitanArmBadge( entity soul )
 	#endif
 }
 
+#endif
+
+// modified!!!
+#if SERVER && TITANFRAMEWORK_HAS_ATTRITIONEXTENDED
+void function TitanEject_SetSoulUseNPCPilotAsNukeAttacker( entity soul, bool setAs )
+{
+	if ( !IsValid( soul ) )
+		return
+	if ( !( soul in file.soulUseNPCPilotAsNukeAttacker ) )
+		file.soulUseNPCPilotAsNukeAttacker[ soul ] <- false // default value
+	file.soulUseNPCPilotAsNukeAttacker[ soul ] = setAs
+}
+
+void function TitanEject_SetSoulNukeExplosionDamageOverride( entity soul, int count, float duration, int damage, int damageHeavyArmor, int innerRadius, int outerRadius, int explosionFlags, int explosionForce, int damageFlags )
+{
+	TitanNukeDamage nukeStruct
+	if ( !( soul in file.soulNukeDamageOverrides ) )
+		file.soulNukeDamageOverrides[ soul ] <- nukeStruct // default
+	
+	nukeStruct.count = count
+	nukeStruct.duration = duration
+	nukeStruct.damage = damage
+	nukeStruct.damageHeavyArmor = damageHeavyArmor
+	nukeStruct.innerRadius = innerRadius
+	nukeStruct.outerRadius = outerRadius
+	nukeStruct.explosionFlags = explosionFlags
+	nukeStruct.explosionForce = explosionForce
+	nukeStruct.damageFlags = damageFlags
+	file.soulNukeDamageOverrides[ soul ] = nukeStruct
+}
+
+bool function SoulHasNukeDamageOverride( entity soul )
+{
+	if ( !( soul in file.soulNukeDamageOverrides ) )
+		return false // default is no overrides
+	return true
+}
+
+TitanNukeDamage function GetSoulNukeDamageOverride( entity soul )
+{
+	TitanNukeDamage defaultStruct
+	if ( !( soul in file.soulNukeDamageOverrides ) )
+		return defaultStruct
+	return file.soulNukeDamageOverrides[ soul ]
+}
 #endif
